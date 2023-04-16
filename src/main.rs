@@ -3,14 +3,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 struct Molecule {
-    value: u32,
+    moltype: u32,
+    preact: f32,
     neighbors: Vec<Rc<RefCell<Molecule>>>,
 }
 
 impl Molecule {
-    fn new(value: u32) -> Self {
+    fn new(moltype: u32, preact: f32) -> Self {
         Self {
-            value,
+            moltype,
+            preact,
             neighbors: Vec::new(),
         }
     }
@@ -19,25 +21,28 @@ impl Molecule {
 impl Clone for Molecule {
     fn clone(&self) -> Self {
         Self {
-            value: self.value,
+            moltype: self.moltype,
+            preact: self.preact,
             neighbors: self.neighbors.clone(),
         }
     }
 }
 
+const LA: usize = 32; // dimension of cube , maximum due to rust limits is currently 32
 const N: usize = 2; // maximum number of neighbors per molecule
-const P: f32 = 0.99; // probability of linking neighboring molecules
+const PLINK: f32 = 0.5; // probability of linking neighboring molecules
+const PINIT: f64 = 0.99; //probability of molecule creation
 
 // ... (previous code) ...
 
-fn print_grid_summary(grid: &[[[Option<Rc<RefCell<Molecule>>>; 10]; 10]; 10]) {
+fn print_grid_summary(grid: &[[[Option<Rc<RefCell<Molecule>>>; LA]; LA]; LA]) {
     let mut total_molecules = 0;
     let mut total_neighbors = 0;
     let mut neighbor_distribution: Vec<usize> = vec![0; N + 1];
 
-    for i in 0..10 {
-        for j in 0..10 {
-            for k in 0..10 {
+    for i in 0..LA {
+        for j in 0..LA {
+            for k in 0..LA {
                 if let Some(molecule) = &grid[i][j][k] {
                     total_molecules += 1;
                     let molecule_borrowed = molecule.borrow();
@@ -62,16 +67,16 @@ fn print_grid_summary(grid: &[[[Option<Rc<RefCell<Molecule>>>; 10]; 10]; 10]) {
 }
 
 // ... (previous code) ...
-fn print_grid_layers(grid: &[[[Option<Rc<RefCell<Molecule>>>; 10]; 10]; 10]) {
-    for k in 0..10 {
+fn print_grid_layers(grid: &[[[Option<Rc<RefCell<Molecule>>>; LA]; LA]; LA]) {
+    for k in 0..LA {
         println!("Layer {}", k + 1);
         println!("========");
-        for i in 0..10 {
-            for j in 0..10 {
+        for i in 0..LA {
+            for j in 0..LA {
                 if let Some(molecule) = &grid[i][j][k] {
                     let molecule_borrowed = molecule.borrow();
-                    print!("{:2}", molecule_borrowed.value);
-                    if j < 9 && molecule_borrowed.neighbors.iter().any(|n| grid[i][j + 1][k].as_ref().map_or(false, |neighbor| Rc::ptr_eq(n, neighbor))) {
+                    print!("{:2}", molecule_borrowed.moltype);
+                    if j < LA-1 && molecule_borrowed.neighbors.iter().any(|n| grid[i][j + 1][k].as_ref().map_or(false, |neighbor| Rc::ptr_eq(n, neighbor))) {
                         print!("-");
                     } else {
                         print!(" ");
@@ -82,8 +87,8 @@ fn print_grid_layers(grid: &[[[Option<Rc<RefCell<Molecule>>>; 10]; 10]; 10]) {
             }
             println!();
 
-            if i < 9 {
-                for j in 0..10 {
+            if i < LA-1 {
+                for j in 0..LA {
                     if let Some(molecule) = &grid[i][j][k] {
                         let molecule_borrowed = molecule.borrow();
                         if molecule_borrowed.neighbors.iter().any(|n| grid[i + 1][j][k].as_ref().map_or(false, |neighbor| Rc::ptr_eq(n, neighbor))) {
@@ -106,36 +111,36 @@ fn print_grid_layers(grid: &[[[Option<Rc<RefCell<Molecule>>>; 10]; 10]; 10]) {
 
 fn main() {
     // Create a 3-dimensional grid with dimensions 10 x 10 x 10
-    let mut grid: [[[Option<Rc<RefCell<Molecule>>>; 10]; 10]; 10] = Default::default();
+    let mut grid: [[[Option<Rc<RefCell<Molecule>>>; LA]; LA]; LA] = Default::default();
 
     // Fill the grid with random molecules
     let mut rng = rand::thread_rng();
-    for i in 0..10 {
-        for j in 0..10 {
-            for k in 0..10 {
-                if rng.gen_bool(0.5) {
-                    let molecule = Rc::new(RefCell::new(Molecule::new(rng.gen_range(0..2))));
+    for i in 0..LA {
+        for j in 0..LA {
+            for k in 0..LA {
+                if rng.gen_bool(PINIT) {
+                    let molecule = Rc::new(RefCell::new(Molecule::new(rng.gen_range(0..2),PLINK)));
                     grid[i][j][k] = Some(molecule);
                 }
             }
         }
     }
 
-    for i in 0..10 {
-        for j in 0..10 {
-            for k in 0..10 {
+    for i in 0..LA {
+        for j in 0..LA {
+            for k in 0..LA {
                 if let Some(molecule) = grid[i][j][k].clone() {
                     let mut neighbor_indices = Vec::new();
                     if i > 0 { neighbor_indices.push((i - 1, j, k)); }
-                    if i < 9 { neighbor_indices.push((i + 1, j, k)); }
+                    if i < LA-1 { neighbor_indices.push((i + 1, j, k)); }
                     if j > 0 { neighbor_indices.push((i, j - 1, k)); }
-                    if j < 9 { neighbor_indices.push((i, j + 1, k)); }
+                    if j < LA-1 { neighbor_indices.push((i, j + 1, k)); }
                     if k > 0 { neighbor_indices.push((i, j, k - 1)); }
-                    if k < 9 { neighbor_indices.push((i, j, k + 1)); }
+                    if k < LA-1 { neighbor_indices.push((i, j, k + 1)); }
 
                     for (ni, nj, nk) in neighbor_indices {
                         if let Some(neighbor) = grid[ni][nj][nk].clone() {
-                            if rng.gen_bool(P as f64) {
+                            if rng.gen_bool(PLINK as f64) {
                                 let mut molecule_borrowed = molecule.borrow_mut();
                                 let mut neighbor_borrowed = neighbor.borrow_mut();
 
