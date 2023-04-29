@@ -1,6 +1,6 @@
 [package]
 name = "kmc3d"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,7 +8,11 @@ edition = "2021"
 [dependencies]
 rand = "^0.8.4"
 ndarray = "^0.15.4"
-clap = { version = "4.2", features = ["derive"] }
+clap = { version = "^4.2", features = ["derive"] }
+kiss3d = "^0.35.0"
+petgraph = "^0.6"
+lazy_static = "^1.4.0"
+
 
 [profile.dev]
 opt-level = 0
