@@ -6,6 +6,7 @@ use kiss3d::nalgebra::{Point2, Point3, Point4, Translation3, UnitQuaternion, Vec
 use kiss3d::scene::SceneNode;
 use kiss3d::window::Window;
 use std::cell::RefCell;
+use std::collections::{HashSet, HashMap};
 use std::path::Path;
 use std::rc::Rc;
 use kiss3d::text::{Font};
@@ -69,8 +70,6 @@ fn draw_axes_and_labels(window: &mut Window) {
 use petgraph::algo::kosaraju_scc;
 
 pub fn visualize_chains(
-    grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
-    molecules: &Vec<Rc<RefCell<Molecule>>>,
     graph: &Graph<Rc<RefCell<Molecule>>, (), Undirected>,
 ) {
     let mut window: Window = Window::new("Molecule Viewer");
@@ -79,19 +78,28 @@ pub fn visualize_chains(
     draw_axes_and_labels(&mut window);
 
     let scc = kosaraju_scc(graph);
-    let num_colors = scc.len();
-    let color_map: Vec<Point4<f32>> = (0..num_colors)
-        .map(|i| {
-            let r = (i * 255 / num_colors) as f32 / 255.0;
-            let g = ((num_colors - i) * 255 / num_colors) as f32 / 255.0;
-            let b = 0.0;
-            let alpha = 0.5;
-            Point4::new(r, g, b, alpha) // Add the alpha component to the color
-        })
-        .collect();
 
-    for (chain_idx, chain) in scc.iter().enumerate() {
-        let chain_color = color_map[chain_idx % num_colors];
+    let mut color_map = HashMap::new();
+    let mut unique_lengths: HashSet<usize> = HashSet::new();
+
+    for chain in &scc {
+        unique_lengths.insert(chain.len());
+    }
+
+    let num_colors = unique_lengths.len();
+    let mut idx = 0;
+
+    for len in unique_lengths {
+        let r = (idx * 255 / num_colors) as f32 / 255.0;
+        let g = ((num_colors - idx) * 255 / num_colors) as f32 / 255.0;
+        let b = 0.0;
+        let alpha = 0.5;
+        color_map.insert(len, Point4::new(r, g, b, alpha));
+        idx += 1;
+    }
+
+    for chain in scc.iter() {
+        let chain_color = color_map.get(&chain.len()).unwrap();
         for node_idx in chain {
             let molecule = graph.node_weight(*node_idx).unwrap();
             let molecule_borrowed = molecule.borrow();
@@ -151,7 +159,7 @@ pub fn visualize_layers(
         .map(|molecule| {
             let molecule_borrowed = molecule.borrow();
             let (i, j, k) = molecule_borrowed.position;
-            let color = color_map[molecule_borrowed.moltype as usize];
+            let color = color_map[molecule_borrowed.functional_group.moltype as usize];
 
             let mut node;
             if use_bfm {

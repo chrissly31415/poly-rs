@@ -13,7 +13,7 @@ pub fn print_summary(grid: &Array3<Option<Rc<RefCell<Molecule>>>>, MAX_TYPE: usi
     for (_index, cell) in grid.indexed_iter() {
         if let Some(molecule) = cell {
             let molecule_borrowed = molecule.borrow();
-            let moltype = molecule_borrowed.moltype as usize;
+            let moltype = molecule_borrowed.functional_group.moltype as usize;
             total_molecules[moltype] += 1;
             let neighbor_count = molecule_borrowed.neighbors.len();
             total_neighbors[moltype] += neighbor_count;

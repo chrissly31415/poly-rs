@@ -1,6 +1,6 @@
-mod visualize;
-mod utils;
 mod statistics;
+mod utils;
+mod visualize;
 
 use rand::prelude::*;
 use std::cell::RefCell;
@@ -15,9 +15,6 @@ use ndarray::Array3;
 
 use lazy_static::lazy_static;
 
-use petgraph::algo::kosaraju_scc;
-
-
 #[derive(Parser, Debug)]
 #[clap(
     version = "0.1",
@@ -31,14 +28,17 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     summary: bool,
 
-    #[arg(short, long, default_value_t = false)]
-    debug: bool,
+    #[arg(short, long, default_value_t = 1)]
+    n_iter: usize,
 
     #[arg(short, long, default_value_t = false)]
     visualize: bool,
 
     #[arg(short, long, default_value_t = false)]
     bfm: bool,
+
+    #[arg(short, long, default_value_t = false)]
+    debug: bool,
 }
 
 const BASE_VECTORS: [(isize, isize, isize); 6] = [
@@ -48,8 +48,8 @@ const BASE_VECTORS: [(isize, isize, isize); 6] = [
     (2, 2, 1), //5
     (3, 1, 0), //4
     (3, 0, 0), //3
-]; 
-//const BASE_VECTORS: [(isize, isize, isize); 3] = [(1, 0, 0), (0, 1, 0), (0, 0, 1)];
+];
+const BASE_VECTORS_SIMPLE: [(isize, isize, isize); 3] = [(1, 0, 0), (0, 1, 0), (0, 0, 1)];
 
 fn generate_bond_vectors(base_vectors: &[(isize, isize, isize)]) -> HashSet<(isize, isize, isize)> {
     let mut potential_neighbors: HashSet<(isize, isize, isize)> = HashSet::new();
@@ -89,9 +89,14 @@ lazy_static! {
         generate_bond_vectors(&BASE_VECTORS).into_iter().collect();
 }
 
-pub struct Molecule {
+pub struct FunctionalGroup {
     moltype: u32,
     preact: f32,
+    max_neighbors: usize,
+}
+
+pub struct Molecule {
+    functional_group: Rc<FunctionalGroup>,
     position: (usize, usize, usize),
     neighbors: Vec<Rc<RefCell<Molecule>>>,
     id: u32,
@@ -100,35 +105,24 @@ pub struct Molecule {
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
 impl Molecule {
-    fn new(moltype: u32, preact: f32, position: (usize, usize, usize)) -> Self {
-        let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
-        Self {
-            moltype,
-            preact,
+    pub fn new(
+        functional_group: Rc<FunctionalGroup>,
+        max_neighbors: usize,
+        position: (usize, usize, usize),
+    ) -> Self {
+        Molecule {
+            functional_group,
             position,
-            neighbors: Vec::new(),
-            id,
+            neighbors: Vec::with_capacity(max_neighbors),
+            id: NEXT_ID.fetch_add(1, Ordering::SeqCst) as u32,
         }
-    }
-    fn cube_positions(&self) -> Vec<(usize, usize, usize)> {
-        let (i, j, k) = self.position;
-        vec![
-            (i + 1, j, k),
-            (i, j + 1, k),
-            (i + 1, j + 1, k),
-            (i, j, k + 1),
-            (i + 1, j, k + 1),
-            (i, j + 1, k + 1),
-            (i + 1, j + 1, k + 1),
-        ]
     }
 }
 
 impl Clone for Molecule {
     fn clone(&self) -> Self {
         Self {
-            moltype: self.moltype,
-            preact: self.preact,
+            functional_group: self.functional_group.clone(),
             position: self.position,
             neighbors: self.neighbors.clone(),
             id: self.id,
@@ -136,13 +130,11 @@ impl Clone for Molecule {
     }
 }
 
-const LA: usize = 40; // dimension of cube , maximum is currently 32 for default array init
-const MAX_NEIGHBORS: usize = 3; // maximum number of neighbors per molecule
-const PLINK: f64 = 1.0; // probability of linking neighboring molecules
-
+const LA: usize = 50; // dimension of cube
+const MAX_NEIGHBORS: usize = 6; // maximum number of neighbors per molecule
 const MAX_TYPE: usize = 2; // Number of molecule types
                            //const CONCS: [f64; MAX_TYPE] = [0.05, 0.1, 0.2]; // starting conc of each molecule type
-const CONCS: [f64; 2] = [0.2, 0.2]; // starting conc of each molecule type
+const CONCS: [f64; 2] = [0.05, 0.1]; // starting conc of each molecule type
 
 fn main() -> Result<(), std::io::Error> {
     let start_time = Instant::now();
@@ -155,31 +147,29 @@ fn main() -> Result<(), std::io::Error> {
     allowed_reactions.insert(1, [0].iter().cloned().collect());
     //allowed_reactions.insert(2, [0,1].iter().cloned().collect());
 
-    react_neighbors(&mut grid, &molecules, &allowed_reactions);
-    let graph = utils::molecules_to_graph(&molecules);
+    visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
+    let n_iter = args.n_iter;
+    for i in 0..n_iter {
+        random_move_n_times(&mut grid, &molecules, 10000000, args.bfm);
+        react_neighbors(&mut grid, &molecules, &allowed_reactions);
+        let graph = utils::molecules_to_graph(&molecules);
+        if args.visualize {
+        visualize::visualize_chains(&graph);
+        visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
+        }
+    }
 
-    visualize::visualize_chains(&grid, &molecules, &graph);
-    visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, true);
-    random_move_n_times(&mut grid, &molecules, 10000000, args.bfm);
     
-    react_neighbors(&mut grid, &molecules, &allowed_reactions);
-    let graph = utils::molecules_to_graph(&molecules);
-
- 
     if args.layers {
         statistics::print_layers(&grid, LA);
     }
-    if args.visualize {
-        //visualize::visualize_layers(&molecules, 0.2, false);
-        visualize::visualize_chains(&grid, &molecules, &graph);
-        visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, true);
-    }
-
+   
     if args.summary {
         statistics::print_summary(&grid, MAX_TYPE, MAX_NEIGHBORS, LA);
         statistics::print_occupied_grid_points_and_molecules(&grid, LA);
         statistics::print_bond_statistics(&molecules, &UNIQUE_BOND_VECTORS);
-        statistics::print_connected_molecules_statistics(&graph,true);
+        let graph = utils::molecules_to_graph(&molecules);
+        statistics::print_connected_molecules_statistics(&graph, true);
     }
     if args.debug {
         println!("Allowed reactions: {:?}", allowed_reactions);
@@ -206,17 +196,34 @@ fn create_random_grid(
         bound = LA;
     }
 
+    let functional_group1 = Rc::new(FunctionalGroup {
+        moltype: 0,
+        preact: 1.0,
+        max_neighbors: 2,
+    });
+
+    let functional_group2 = Rc::new(FunctionalGroup {
+        moltype: 1,
+        preact: 1.0,
+        max_neighbors: 3,
+    });
+
+    let mut functional_groups = Vec::new();
+    functional_groups.push(functional_group1.clone());
+    functional_groups.push(functional_group2.clone());
+
     for i in 0..bound {
         for j in 0..bound {
             for k in 0..bound {
                 if k >= z_max {
                     continue;
                 };
-                let moltype = rng.gen_range(0..MAX_TYPE);
+                let moltype = rng.gen_range(0..MAX_TYPE) ;
+                //let moltype = if k == 0 { 0 } else { 1};
                 if rng.gen::<f64>() < CONCS[moltype] {
                     let molecule = Rc::new(RefCell::new(Molecule::new(
-                        moltype as u32,
-                        PLINK as f32,
+                        functional_groups[moltype].clone(),
+                        functional_groups[moltype].max_neighbors,
                         (i, j, k),
                     )));
 
@@ -264,12 +271,14 @@ fn react_neighbors(
         let reactable_neighbors = get_reactable_neighbors(grid, molecule, allowed_reactions);
 
         for neighbor in reactable_neighbors {
-            if rng.gen_bool(molecule.borrow().preact as f64) {
+            if rng.gen_bool(molecule.borrow().functional_group.preact as f64) {
                 let mut molecule_borrowed_mut = molecule.borrow_mut();
                 let mut neighbor_borrowed_mut = neighbor.borrow_mut();
 
-                if molecule_borrowed_mut.neighbors.len() < MAX_NEIGHBORS
-                    && neighbor_borrowed_mut.neighbors.len() < MAX_NEIGHBORS
+                if molecule_borrowed_mut.neighbors.len()
+                    < molecule_borrowed_mut.functional_group.max_neighbors
+                    && neighbor_borrowed_mut.neighbors.len()
+                        < neighbor_borrowed_mut.functional_group.max_neighbors
                 {
                     molecule_borrowed_mut.neighbors.push(neighbor.clone());
                     neighbor_borrowed_mut.neighbors.push(molecule.clone());
@@ -312,9 +321,13 @@ fn get_reactable_neighbors(
                     continue; // skip if the neighbor is the same as the molecule
                 }
                 let neighbor_borrowed = neighbor.borrow();
-                if let Some(reaction_partners) = allowed_reactions.get(&molecule_borrowed.moltype) {
-                    if reaction_partners.contains(&neighbor_borrowed.moltype) {
-                        reactable_neighbors.push(neighbor.clone());
+                if neighbor_borrowed.position == (ni as usize, nj as usize, nk as usize) {
+                    if let Some(reaction_partners) =
+                        allowed_reactions.get(&molecule_borrowed.functional_group.moltype)
+                    {
+                        if reaction_partners.contains(&neighbor_borrowed.functional_group.moltype) {
+                            reactable_neighbors.push(neighbor.clone());
+                        }
                     }
                 }
             }
