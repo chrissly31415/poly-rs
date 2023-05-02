@@ -1,11 +1,26 @@
-use std::{cell::RefCell, rc::Rc, collections::{HashSet, HashMap, BTreeMap}};
 use ndarray::Array3;
-use petgraph::{algo::{kosaraju_scc, is_cyclic_undirected}, algo::tarjan_scc, Graph, Undirected, adj::NodeIndex, visit::EdgeRef};
+use petgraph::{
+    algo::{is_cyclic_undirected, kosaraju_scc},
+    visit::EdgeRef,
+    Graph, Undirected,
+};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap, HashSet},
+    rc::Rc,
+};
 
-use crate::{Molecule, UNIQUE_BOND_VECTORS};
+use plotters::prelude::*;
+use std::path::Path;
 
+use crate::{Molecule, Reaction};
 
-pub fn print_summary(grid: &Array3<Option<Rc<RefCell<Molecule>>>>, MAX_TYPE: usize, MAX_NEIGHBORS: usize, LA: usize) {
+pub fn print_summary(
+    grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
+    MAX_TYPE: usize,
+    MAX_NEIGHBORS: usize,
+    LA: usize,
+) {
     let mut total_molecules = vec![0; MAX_TYPE];
     let mut total_neighbors = vec![0; MAX_TYPE];
     let mut neighbor_distribution: Vec<Vec<usize>> = vec![vec![0; MAX_NEIGHBORS + 1]; MAX_TYPE];
@@ -13,7 +28,7 @@ pub fn print_summary(grid: &Array3<Option<Rc<RefCell<Molecule>>>>, MAX_TYPE: usi
     for (_index, cell) in grid.indexed_iter() {
         if let Some(molecule) = cell {
             let molecule_borrowed = molecule.borrow();
-            let moltype = molecule_borrowed.functional_group.moltype as usize;
+            let moltype = molecule_borrowed.functional_group.id as usize;
             total_molecules[moltype] += 1;
             let neighbor_count = molecule_borrowed.neighbors.len();
             total_neighbors[moltype] += neighbor_count;
@@ -45,7 +60,8 @@ pub fn print_summary(grid: &Array3<Option<Rc<RefCell<Molecule>>>>, MAX_TYPE: usi
 }
 
 pub fn print_occupied_grid_points_and_molecules(
-    grid: &Array3<Option<Rc<RefCell<Molecule>>>>, LA: usize,
+    grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
+    LA: usize,
 ) -> (usize, usize) {
     let mut occupied_grid_points = 0;
     let mut total_grid_points = 0;
@@ -141,12 +157,13 @@ pub fn print_layers(grid: &Array3<Option<Rc<RefCell<Molecule>>>>, LA: usize) {
     }
 }
 
-pub fn print_bond_statistics(molecules: &Vec<Rc<RefCell<Molecule>>>, unique_bond_vectors: &Vec<(isize, isize, isize)>) {
- 
+pub fn print_bond_statistics(
+    molecules: &Vec<Rc<RefCell<Molecule>>>,
+    unique_bond_vectors: &Vec<(isize, isize, isize)>,
+) {
     let mut bond_lengths = Vec::new();
     let mut counted_bonds = HashSet::new();
     let mut bond_length_counts: HashMap<usize, usize> = HashMap::new();
- 
 
     for molecule in molecules {
         let molecule_borrowed = molecule.borrow();
@@ -170,9 +187,9 @@ pub fn print_bond_statistics(molecules: &Vec<Rc<RefCell<Molecule>>>, unique_bond
 
                 match unique_bond_vectors.iter().position(|&v| v == bond_vector) {
                     Some(_) => {
-                        let bond_length = (
-                            bond_vector.0.abs() + bond_vector.1.abs() + bond_vector.2.abs()
-                        ) as usize;
+                        let bond_length =
+                            (bond_vector.0.abs() + bond_vector.1.abs() + bond_vector.2.abs())
+                                as usize;
                         bond_lengths.push(bond_length);
                         *bond_length_counts.entry(bond_length).or_insert(0) += 1;
                     }
@@ -197,11 +214,11 @@ pub fn print_bond_statistics(molecules: &Vec<Rc<RefCell<Molecule>>>, unique_bond
     println!("Bond length counts: {:?}", bond_length_counts);
 }
 
-
-
-pub fn print_connected_molecules_statistics(graph: &Graph<Rc<RefCell<Molecule>>, (), Undirected>, verbose: bool) {
+pub fn print_connected_molecules_statistics(
+    graph: &Graph<Rc<RefCell<Molecule>>, (), Undirected>,
+    verbose: bool,
+) {
     let connected_components = kosaraju_scc(graph);
-    
 
     let mut chain_lengths: BTreeMap<usize, usize> = BTreeMap::new();
     let mut min_chain_length = usize::MAX;
@@ -220,7 +237,7 @@ pub fn print_connected_molecules_statistics(graph: &Graph<Rc<RefCell<Molecule>>,
     let num_components = connected_components.len();
     let avg_chain_length = total_chain_length as f64 / num_components as f64;
 
-    println!("\nPolymer Statistics:");
+    println!("\nChain Statistics:");
     println!("============");
     println!("Shortest chain length: {}", min_chain_length);
     println!("Longest chain length: {}", max_chain_length);
@@ -235,7 +252,6 @@ pub fn print_connected_molecules_statistics(graph: &Graph<Rc<RefCell<Molecule>>,
         }
     }
 }
-
 
 pub fn connected_components_to_graphs(
     graph: &Graph<Rc<RefCell<Molecule>>, (), Undirected>,
@@ -273,13 +289,31 @@ pub fn connected_components_to_graphs(
             }
         }
         if is_cyclic_undirected(&component_graph) {
-            num_cycles+=1;
+            num_cycles += 1;
         }
         component_graphs.push(component_graph);
     }
-    println!("Generated {} graphs - found {} cycles.",component_graphs.len(), num_cycles);
+    println!(
+        "Generated {} graphs - found {} cycles.",
+        component_graphs.len(),
+        num_cycles
+    );
     component_graphs
 }
 
+pub fn print_reactions(allowed_reactions: &Vec<Reaction>) {
+    println!("Allowed Reactions:");
+    for (i, reaction) in allowed_reactions.iter().enumerate() {
+        println!(
+            "Reaction {}: {} + {} -> {} - {} | Rate Constant: {}",
+            i + 1,
+            reaction.reactant1.id,
+            reaction.reactant2.id,
+            reaction.product1.id,
+            reaction.product2.id,
+            reaction.rate_constant
+        );
+    }
+}
 
 

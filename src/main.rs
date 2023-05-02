@@ -6,12 +6,13 @@ use rand::prelude::*;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Instant;
 
 use clap::Parser;
 use ndarray::Array3;
+use serde::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
 
@@ -89,10 +90,19 @@ lazy_static! {
         generate_bond_vectors(&BASE_VECTORS).into_iter().collect();
 }
 
+pub struct Reaction {
+    reactant1: Rc<FunctionalGroup>,
+    reactant2: Rc<FunctionalGroup>,
+    product1: Rc<FunctionalGroup>,
+    product2: Rc<FunctionalGroup>,
+    rate_constant: f64,
+    bond: bool, // reactions should also allow to mutate functional groups
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FunctionalGroup {
-    moltype: u32,
-    preact: f32,
-    max_neighbors: usize,
+    id: u32,
+    count: usize,
 }
 
 pub struct Molecule {
@@ -130,51 +140,99 @@ impl Clone for Molecule {
     }
 }
 
-const LA: usize = 50; // dimension of cube
+const LA: usize = 100; // dimension of cube
 const MAX_NEIGHBORS: usize = 6; // maximum number of neighbors per molecule
-const MAX_TYPE: usize = 2; // Number of molecule types
+const MAX_TYPE: usize = 3; // Number of molecule types
                            //const CONCS: [f64; MAX_TYPE] = [0.05, 0.1, 0.2]; // starting conc of each molecule type
-const CONCS: [f64; 2] = [0.05, 0.1]; // starting conc of each molecule type
+const CONCS: [f64; 2] = [0.3, 0.2]; // starting conc of each molecule type
 
 fn main() -> Result<(), std::io::Error> {
     let start_time = Instant::now();
     let args = Args::parse();
 
-    let (mut grid, molecules) = create_random_grid(args.bfm, LA / 2);
+    let functional_group1 = Rc::new(FunctionalGroup { id: 0, count: 2 });
+    let functional_group2 = Rc::new(FunctionalGroup { id: 1, count: 3 });
+    //let functional_group3 = Rc::new(FunctionalGroup { id: 2, count: 2 });
 
-    let mut allowed_reactions: HashMap<u32, HashSet<u32>> = HashMap::new();
-    allowed_reactions.insert(0, [1].iter().cloned().collect());
-    allowed_reactions.insert(1, [0].iter().cloned().collect());
-    //allowed_reactions.insert(2, [0,1].iter().cloned().collect());
+    let mut functional_groups = Vec::new();
+    functional_groups.push(functional_group1.clone());
+    functional_groups.push(functional_group2.clone());
 
-    visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
+
+  /*   //chain growth reaction
+    let allowed_reactions = vec![
+        Reaction {
+            // initiation
+            reactant1: functional_group1.clone(),
+            reactant2: functional_group2.clone(),
+            product1: functional_group1.clone(),
+            product2: functional_group3.clone(),
+            rate_constant: 0.1,
+            bond: true,
+        },
+        Reaction {
+            // propagation
+            reactant1: functional_group2.clone(),
+            reactant2: functional_group3.clone(),
+            product1: functional_group3.clone(),
+            product2: functional_group3.clone(),
+            rate_constant: 10.0,
+            bond: true,
+        },
+    ]; */
+
+    let allowed_reactions = vec![
+        Reaction {
+            reactant1: functional_group1.clone(),
+            reactant2: functional_group2.clone(),
+            product1: functional_group1.clone(),
+            product2: functional_group2.clone(),
+            rate_constant: 10.0,
+            bond: true,
+        },
+        // Reaction {
+        //     // propagation
+        //     reactant1: functional_group2.clone(),
+        //     reactant2: functional_group3.clone(),
+        //     product1: functional_group3.clone(),
+        //     product2: functional_group3.clone(),
+        //     rate_constant: 10.0,
+        //     bond: true,
+        // },
+    ];
+
+    let (mut grid, molecules) = create_random_grid(args.bfm, LA / 2, &functional_groups);
+    //visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
     let n_iter = args.n_iter;
     for i in 0..n_iter {
-        random_move_n_times(&mut grid, &molecules, 10000000, args.bfm);
+        println!("\nITERATION {i}");
+        random_move_n_times(&mut grid, &molecules, 1000000, args.bfm);
         react_neighbors(&mut grid, &molecules, &allowed_reactions);
         let graph = utils::molecules_to_graph(&molecules);
+        statistics::print_connected_molecules_statistics(&graph, false);
         if args.visualize {
-        visualize::visualize_chains(&graph);
-        visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
+            visualize::visualize_chains(&graph);
+            visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
         }
     }
 
-    
     if args.layers {
         statistics::print_layers(&grid, LA);
     }
-   
+
     if args.summary {
         statistics::print_summary(&grid, MAX_TYPE, MAX_NEIGHBORS, LA);
         statistics::print_occupied_grid_points_and_molecules(&grid, LA);
         statistics::print_bond_statistics(&molecules, &UNIQUE_BOND_VECTORS);
         let graph = utils::molecules_to_graph(&molecules);
         statistics::print_connected_molecules_statistics(&graph, true);
-    }
-    if args.debug {
-        println!("Allowed reactions: {:?}", allowed_reactions);
+        statistics::print_reactions(&allowed_reactions);
     }
 
+    if args.visualize {
+        let graph = utils::molecules_to_graph(&molecules);
+        visualize::visualize_chains(&graph);
+    }
     let elapsed_time = start_time.elapsed();
     println!("Total time elapsed: {:?}", elapsed_time);
     Ok(())
@@ -183,6 +241,7 @@ fn main() -> Result<(), std::io::Error> {
 fn create_random_grid(
     use_bfm: bool,
     z_max: usize,
+    functional_groups: &Vec<Rc<FunctionalGroup>>,
 ) -> (
     Array3<Option<Rc<RefCell<Molecule>>>>,
     Vec<Rc<RefCell<Molecule>>>,
@@ -196,34 +255,18 @@ fn create_random_grid(
         bound = LA;
     }
 
-    let functional_group1 = Rc::new(FunctionalGroup {
-        moltype: 0,
-        preact: 1.0,
-        max_neighbors: 2,
-    });
-
-    let functional_group2 = Rc::new(FunctionalGroup {
-        moltype: 1,
-        preact: 1.0,
-        max_neighbors: 3,
-    });
-
-    let mut functional_groups = Vec::new();
-    functional_groups.push(functional_group1.clone());
-    functional_groups.push(functional_group2.clone());
-
     for i in 0..bound {
         for j in 0..bound {
             for k in 0..bound {
                 if k >= z_max {
                     continue;
                 };
-                let moltype = rng.gen_range(0..MAX_TYPE) ;
+                let moltype = rng.gen_range(0..functional_groups.len());
                 //let moltype = if k == 0 { 0 } else { 1};
                 if rng.gen::<f64>() < CONCS[moltype] {
                     let molecule = Rc::new(RefCell::new(Molecule::new(
                         functional_groups[moltype].clone(),
-                        functional_groups[moltype].max_neighbors,
+                        functional_groups[moltype].count,
                         (i, j, k),
                     )));
 
@@ -261,37 +304,79 @@ fn create_random_grid(
     (grid, molecules)
 }
 
+fn are_reaction_participants(
+    reaction: &Reaction,
+    mol1: &Rc<FunctionalGroup>,
+    mol2: &Rc<FunctionalGroup>,
+) -> bool {
+    (Rc::ptr_eq(&reaction.reactant1, mol1) && Rc::ptr_eq(&reaction.reactant2, mol2))
+        || (Rc::ptr_eq(&reaction.reactant1, mol2) && Rc::ptr_eq(&reaction.reactant2, mol1))
+}
+
 fn react_neighbors(
     grid: &mut Array3<Option<Rc<RefCell<Molecule>>>>,
     molecules: &[Rc<RefCell<Molecule>>],
-    allowed_reactions: &HashMap<u32, HashSet<u32>>,
+    allowed_reactions: &Vec<Reaction>,
 ) {
     let mut rng = rand::thread_rng();
+    let mut n_reactions: usize = 0;
+
+    // Calculate the sum of all available rate constants
+    let total_probability: f64 = allowed_reactions.iter().map(|r| r.rate_constant).sum();
+
     for molecule in molecules {
         let reactable_neighbors = get_reactable_neighbors(grid, molecule, allowed_reactions);
 
         for neighbor in reactable_neighbors {
-            if rng.gen_bool(molecule.borrow().functional_group.preact as f64) {
-                let mut molecule_borrowed_mut = molecule.borrow_mut();
-                let mut neighbor_borrowed_mut = neighbor.borrow_mut();
+            {
+                let mut molecule_borrowed = molecule.borrow_mut();
+                let mut neighbor_borrowed = neighbor.borrow_mut();
 
-                if molecule_borrowed_mut.neighbors.len()
-                    < molecule_borrowed_mut.functional_group.max_neighbors
-                    && neighbor_borrowed_mut.neighbors.len()
-                        < neighbor_borrowed_mut.functional_group.max_neighbors
-                {
-                    molecule_borrowed_mut.neighbors.push(neighbor.clone());
-                    neighbor_borrowed_mut.neighbors.push(molecule.clone());
+                if let Some(reaction) = allowed_reactions.iter().find(|r| {
+                    are_reaction_participants(
+                        r,
+                        &molecule_borrowed.functional_group,
+                        &neighbor_borrowed.functional_group,
+                    )
+                }) {
+                    // Normalize the rate constant by dividing it by the sum
+                    let reaction_probability = reaction.rate_constant / total_probability;
+                    if rng.gen_bool(reaction_probability) {
+                        if molecule_borrowed.neighbors.len()
+                            < molecule_borrowed.functional_group.count
+                            && neighbor_borrowed.neighbors.len()
+                                < neighbor_borrowed.functional_group.count
+                        {
+                            if reaction.bond {
+                                molecule_borrowed.neighbors.push(neighbor.clone());
+                                neighbor_borrowed.neighbors.push(molecule.clone());
+                            }
+                            // Update the functional groups to their respective products
+                            // Check if the reaction partners are swapped
+                            if molecule_borrowed.functional_group.id == reaction.reactant1.id
+                                && neighbor_borrowed.functional_group.id == reaction.reactant2.id
+                            {
+                                molecule_borrowed.functional_group = reaction.product1.clone();
+                                neighbor_borrowed.functional_group = reaction.product2.clone();
+                            } else {
+                                molecule_borrowed.functional_group = reaction.product2.clone();
+                                neighbor_borrowed.functional_group = reaction.product1.clone();
+                            }
+
+                            n_reactions += 1;
+                        }
+                    }
                 }
             }
         }
     }
+    println!("Reactions fired: {}", n_reactions);
 }
 
 fn get_reactable_neighbors(
     grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
     molecule: &Rc<RefCell<Molecule>>,
-    allowed_reactions: &HashMap<u32, HashSet<u32>>,
+    allowed_reactions: &Vec<Reaction>,
 ) -> Vec<Rc<RefCell<Molecule>>> {
     let molecule_borrowed = molecule.borrow();
     let (i, j, k) = (
@@ -322,11 +407,14 @@ fn get_reactable_neighbors(
                 }
                 let neighbor_borrowed = neighbor.borrow();
                 if neighbor_borrowed.position == (ni as usize, nj as usize, nk as usize) {
-                    if let Some(reaction_partners) =
-                        allowed_reactions.get(&molecule_borrowed.functional_group.moltype)
-                    {
-                        if reaction_partners.contains(&neighbor_borrowed.functional_group.moltype) {
+                    for reaction in allowed_reactions.iter() {
+                        if are_reaction_participants(
+                            reaction,
+                            &molecule_borrowed.functional_group,
+                            &neighbor_borrowed.functional_group,
+                        ) {
                             reactable_neighbors.push(neighbor.clone());
+                            break;
                         }
                     }
                 }

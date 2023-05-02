@@ -11,7 +11,10 @@ ndarray = "^0.15.4"
 clap = { version = "^4.2", features = ["derive"] }
 kiss3d = "^0.35.0"
 petgraph = "^0.6"
+plotters = "0.3.4"
 lazy_static = "^1.4.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
 
 [profile.dev]

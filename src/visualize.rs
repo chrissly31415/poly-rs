@@ -4,30 +4,21 @@ use crate::{Array3, Molecule, MAX_TYPE};
 use kiss3d::light::Light;
 use kiss3d::nalgebra::{Point2, Point3, Point4, Translation3, UnitQuaternion, Vector3};
 use kiss3d::scene::SceneNode;
+use kiss3d::text::Font;
 use kiss3d::window::Window;
 use std::cell::RefCell;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
-use kiss3d::text::{Font};
 
 use petgraph::graph::Graph;
 use petgraph::Undirected;
 
-
 fn draw_axes_and_labels(window: &mut Window) {
     //let origin = Point3::<f32>::origin();
     let axis_length = 1.0;
-    let axes_rot = [
-        Vector3::z_axis(),
-        Vector3::y_axis(),
-        Vector3::x_axis(),
-    ];
-    let axes_shift = [
-        Vector3::x_axis(),
-        Vector3::y_axis(),
-        Vector3::z_axis(),
-    ];
+    let axes_rot = [Vector3::z_axis(), Vector3::y_axis(), Vector3::x_axis()];
+    let axes_shift = [Vector3::x_axis(), Vector3::y_axis(), Vector3::z_axis()];
 
     let axes_colors = [
         Point3::new(1.0, 0.0, 0.0), // X Red
@@ -35,19 +26,18 @@ fn draw_axes_and_labels(window: &mut Window) {
         Point3::new(0.0, 0.0, 1.0), // Z Blue
     ];
 
-    
     for i in 0..3 {
         let mut axis = window.add_cylinder(0.05, axis_length);
         axis.set_color(axes_colors[i].x, axes_colors[i].y, axes_colors[i].z);
-        if i!=1 {
+        if i != 1 {
             let rotation = UnitQuaternion::from_axis_angle(&axes_rot[i], 1.5707964);
             axis.set_local_rotation(rotation)
         };
-        axis.set_local_translation(Translation3::from(axes_shift[i].into_inner()*0.5));
+        axis.set_local_translation(Translation3::from(axes_shift[i].into_inner() * 0.5));
     }
 
     //label
-/*     let label_offset = 0.2;
+    /*     let label_offset = 0.2;
     let x_label_position = Point2::new(axes_rot[0].x + label_offset, axes_rot[0].y);
     let y_label_position = Point2::new(axes_rot[1].x, axes_rot[1].y + label_offset);
     let z_label_position = Point2::new(axes_rot[2].x, axes_rot[2].z + label_offset);
@@ -63,16 +53,11 @@ fn draw_axes_and_labels(window: &mut Window) {
     window.draw_text("X", &x_label_position, label_scale, &font, &label_color);
     window.draw_text("Y", &y_label_position, label_scale, &font, &label_color);
     window.draw_text("Z", &z_label_position, label_scale, &font, &label_color); */
-    
 }
 
-
 use petgraph::algo::kosaraju_scc;
-
-pub fn visualize_chains(
-    graph: &Graph<Rc<RefCell<Molecule>>, (), Undirected>,
-) {
-    let mut window: Window = Window::new("Molecule Viewer");
+pub fn visualize_chains(graph: &Graph<Rc<RefCell<Molecule>>, (), Undirected>) {
+    let mut window: Window = Window::new("Chain Viewer");
     window.set_light(Light::StickToCamera);
 
     draw_axes_and_labels(&mut window);
@@ -86,15 +71,19 @@ pub fn visualize_chains(
         unique_lengths.insert(chain.len());
     }
 
-    let num_colors = unique_lengths.len();
+    // Sort unique_lengths in descending order
+    let mut unique_lengths_sorted: Vec<usize> = unique_lengths.into_iter().collect();
+    unique_lengths_sorted.sort_unstable_by(|a, b| b.cmp(a));
+
+    let num_colors = unique_lengths_sorted.len();
     let mut idx = 0;
 
-    for len in unique_lengths {
+    for len in unique_lengths_sorted.iter() {
         let r = (idx * 255 / num_colors) as f32 / 255.0;
         let g = ((num_colors - idx) * 255 / num_colors) as f32 / 255.0;
         let b = 0.0;
         let alpha = 0.5;
-        color_map.insert(len, Point4::new(r, g, b, alpha));
+        color_map.insert(*len, Point4::new(r, g, b, alpha));
         idx += 1;
     }
 
@@ -115,8 +104,6 @@ pub fn visualize_chains(
 
     while window.render() {}
 }
-
-
 
 pub fn visualize_layers(
     grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
@@ -140,7 +127,6 @@ pub fn visualize_layers(
             Point4::new(r, g, b, alpha) // Add the alpha component to the color
         })
         .collect();
-    
 
     if show_grid {
         for ((i, j, k), _) in grid.indexed_iter() {
@@ -152,14 +138,13 @@ pub fn visualize_layers(
         }
     }
 
-
     let cube_size = 1.0;
     let nodes: Vec<SceneNode> = molecules
         .iter()
         .map(|molecule| {
             let molecule_borrowed = molecule.borrow();
             let (i, j, k) = molecule_borrowed.position;
-            let color = color_map[molecule_borrowed.functional_group.moltype as usize];
+            let color = color_map[molecule_borrowed.functional_group.id as usize];
 
             let mut node;
             if use_bfm {
@@ -242,8 +227,6 @@ pub fn visualize_layers(
     }
 
     // Render loop
-    while window.render() {
-    }
+    while window.render() {}
     window.close();
 }
-
