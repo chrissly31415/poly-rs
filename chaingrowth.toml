@@ -1,0 +1,32 @@
+LA = 300
+MAX_NEIGHBORS = 6
+MAX_TYPE = 3
+CONCS = [0.1, 0.3, 0.0]
+
+[[functional_groups]]
+id = 0
+count = 3
+
+[[functional_groups]]
+id = 1
+count = 2
+
+[[functional_groups]]
+id = 2
+count = 2
+
+[[reactions]]
+reactant1_id = 0
+reactant2_id = 1
+product1_id = 0
+product2_id = 2
+rate_constant = 10.0
+bond = true
+
+[[reactions]]
+reactant1_id = 1
+reactant2_id = 2
+product1_id = 2
+product2_id = 2
+rate_constant = 1.0
+bond = true

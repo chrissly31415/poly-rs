@@ -10,10 +10,7 @@ use std::{
     rc::Rc,
 };
 
-use plotters::prelude::*;
-use std::path::Path;
-
-use crate::{Molecule, Reaction};
+use crate::{Molecule, Reaction, FunctionalGroup};
 
 pub fn print_summary(
     grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
@@ -36,7 +33,7 @@ pub fn print_summary(
         }
     }
 
-    println!("Molecule Statistics");
+    println!("\nMolecule Statistics");
     println!("============");
     println!("Grid size: {}", LA);
     println!("Total molecules:");
@@ -58,6 +55,42 @@ pub fn print_summary(
         }
     }
 }
+
+
+pub fn print_functional_groups(molecules: &[Rc<RefCell<Molecule>>], MAX_TYPE: usize)  {
+    // Initialize a vector to store the counts for each type
+    let mut type_counts = vec![0; MAX_TYPE];
+
+    // Iterate through all molecules
+    for molecule in molecules {
+        let molecule_borrowed = molecule.borrow();
+
+        // Access the functional group of the current molecule
+        let type_id = molecule_borrowed.functional_group.id as usize;
+
+        // Ensure the type_id is within bounds
+        if type_id < MAX_TYPE {
+            type_counts[type_id] += 1;
+        }
+
+        // Iterate through the neighbors of the current molecule
+        for neighbor_molecule in &molecule_borrowed.neighbors {
+            let neighbor_molecule_borrowed = neighbor_molecule.borrow();
+            let neighbor_type_id = neighbor_molecule_borrowed.functional_group.id as usize;
+
+            // Ensure the neighbor_type_id is within bounds
+            if neighbor_type_id < MAX_TYPE {
+                type_counts[neighbor_type_id] += 1;
+            }
+        }
+    }
+
+    for (type_id, count) in type_counts.iter().enumerate() {
+        println!("Functional Group Type {}: Count = {}", type_id, count);
+    }
+    
+}
+
 
 pub fn print_occupied_grid_points_and_molecules(
     grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
@@ -86,76 +119,6 @@ pub fn print_occupied_grid_points_and_molecules(
     (occupied_grid_points, unique_molecules.len())
 }
 
-pub fn print_layers(grid: &Array3<Option<Rc<RefCell<Molecule>>>>, LA: usize) {
-    for k in 0..LA {
-        println!("Layer {}", k + 1);
-        println!("========");
-        for i in 0..LA {
-            for j in 0..LA {
-                if let Some(molecule) = &grid[[i, j, k]] {
-                    let molecule_borrowed = molecule.borrow();
-
-                    let mut cell_repr = String::from(" ");
-                    if k > 0
-                        && molecule_borrowed.neighbors.iter().any(|n| {
-                            grid[[i, j, k - 1]]
-                                .as_ref()
-                                .map_or(false, |neighbor| Rc::ptr_eq(n, neighbor))
-                        })
-                    {
-                        cell_repr.push('V');
-                    }
-                    if k < LA - 1
-                        && molecule_borrowed.neighbors.iter().any(|n| {
-                            grid[[i, j, k + 1]]
-                                .as_ref()
-                                .map_or(false, |neighbor| Rc::ptr_eq(n, neighbor))
-                        })
-                    {
-                        cell_repr.push('^');
-                    }
-
-                    print!("{:2}", cell_repr);
-                    if j < LA - 1
-                        && molecule_borrowed.neighbors.iter().any(|n| {
-                            grid[[i, j + 1, k]]
-                                .as_ref()
-                                .map_or(false, |neighbor| Rc::ptr_eq(n, neighbor))
-                        })
-                    {
-                        print!("-");
-                    } else {
-                        print!(" ");
-                    }
-                } else {
-                    print!("   ");
-                }
-            }
-            println!();
-
-            if i < LA - 1 {
-                for j in 0..LA {
-                    if let Some(molecule) = &grid[[i, j, k]] {
-                        let molecule_borrowed = molecule.borrow();
-                        if molecule_borrowed.neighbors.iter().any(|n| {
-                            grid[[i + 1, j, k]]
-                                .as_ref()
-                                .map_or(false, |neighbor| Rc::ptr_eq(n, neighbor))
-                        }) {
-                            print!(" | ");
-                        } else {
-                            print!("   ");
-                        }
-                    } else {
-                        print!("   ");
-                    }
-                }
-                println!();
-            }
-        }
-        println!();
-    }
-}
 
 pub fn print_bond_statistics(
     molecules: &Vec<Rc<RefCell<Molecule>>>,
@@ -250,6 +213,7 @@ pub fn print_connected_molecules_statistics(
         for (length, count) in chain_lengths.iter() {
             println!("N {:5}: {}", length, count);
         }
+        plot_chain_length_distribution(&chain_lengths);
     }
 }
 
@@ -317,3 +281,33 @@ pub fn print_reactions(allowed_reactions: &Vec<Reaction>) {
 }
 
 
+use plotly::{common::{Title}, Layout, layout::Axis};
+use plotly::{Bar, Plot};
+
+pub fn plot_chain_length_distribution(chain_lengths: &BTreeMap<usize, usize>) {
+    
+    let lengths: Vec<usize> = chain_lengths.keys().cloned().collect();
+    let counts: Vec<usize> = chain_lengths.values().cloned().collect();
+
+    let trace = Bar::new(lengths.clone(), counts.clone())
+        .name("\nChain Length Distribution");
+
+        let layout = Layout::new()
+        .title(Title::new("Chain Length Distribution"))
+        .x_axis(Axis::new().title(Title::new("Chain Length")))
+        //.x_axis(Axis::new().title(Title::new("Chain Length")).type_(plotly::layout::AxisType::Log))
+        //.y_axis(Axis::new().title(Title::new("Count")).type_(plotly::layout::AxisType::Log));
+        .y_axis(Axis::new().title(Title::new("Count")));
+
+
+    let mut plot = Plot::new();
+    plot.set_layout(layout);
+    plot.add_trace(trace);
+
+    // If you want to display the plot in the browser, uncomment the following line:
+    plot.use_local_plotly();
+    //plot.show();
+
+    // To save the plot as an HTML file:
+    plot.write_html("chain_length_distribution.html");
+}

@@ -1,16 +1,17 @@
 // visualize.rs
-use crate::{Array3, Molecule, MAX_TYPE};
+use crate::{Array3, Molecule};
 
 use kiss3d::light::Light;
-use kiss3d::nalgebra::{Point2, Point3, Point4, Translation3, UnitQuaternion, Vector3};
+use kiss3d::nalgebra::{Point3, Point4, Translation3, UnitQuaternion, Vector3};
 use kiss3d::scene::SceneNode;
-use kiss3d::text::Font;
+
 use kiss3d::window::Window;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+
 use std::rc::Rc;
 
+use petgraph::algo::kosaraju_scc;
 use petgraph::graph::Graph;
 use petgraph::Undirected;
 
@@ -36,26 +37,8 @@ fn draw_axes_and_labels(window: &mut Window) {
         axis.set_local_translation(Translation3::from(axes_shift[i].into_inner() * 0.5));
     }
 
-    //label
-    /*     let label_offset = 0.2;
-    let x_label_position = Point2::new(axes_rot[0].x + label_offset, axes_rot[0].y);
-    let y_label_position = Point2::new(axes_rot[1].x, axes_rot[1].y + label_offset);
-    let z_label_position = Point2::new(axes_rot[2].x, axes_rot[2].z + label_offset);
-
-    let label_color = Point3::new(1.0, 1.0, 1.0); // White
-    let label_scale = 0.05;
-
-    let font_path = Path::new("/home/loschen/calc/poly-rs/src/IBM_Plex_Sans/IBMPlexSans-Light.ttf"); // Update the path to your font file
-    let font = Font::new(font_path).unwrap_or_else(|| {
-        panic!("Failed to load font from file");
-    });
-
-    window.draw_text("X", &x_label_position, label_scale, &font, &label_color);
-    window.draw_text("Y", &y_label_position, label_scale, &font, &label_color);
-    window.draw_text("Z", &z_label_position, label_scale, &font, &label_color); */
 }
 
-use petgraph::algo::kosaraju_scc;
 pub fn visualize_chains(graph: &Graph<Rc<RefCell<Molecule>>, (), Undirected>) {
     let mut window: Window = Window::new("Chain Viewer");
     window.set_light(Light::StickToCamera);
@@ -112,6 +95,7 @@ pub fn visualize_layers(
     show_bonds: bool,
     use_bfm: bool,
     show_grid: bool,
+    MAX_TYPE: usize,
 ) {
     let mut window: Window = Window::new("Molecule Viewer");
     window.set_light(Light::StickToCamera);

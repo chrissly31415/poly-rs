@@ -4,15 +4,20 @@ mod visualize;
 
 use rand::prelude::*;
 use std::cell::RefCell;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::rc::Rc;
 use std::time::Instant;
 
 use clap::Parser;
 use ndarray::Array3;
 use serde::{Deserialize, Serialize};
+
+use toml::Value; // Add this import for toml::Value
 
 use lazy_static::lazy_static;
 
@@ -23,23 +28,28 @@ use lazy_static::lazy_static;
     about = "Experimental code for polmyers using Rust"
 )]
 struct Args {
-    #[arg(short, long, default_value_t = false)]
+    #[clap(short, long, default_value_t = false)]
     layers: bool,
 
-    #[arg(short, long, default_value_t = false)]
+    #[clap(short, long, default_value_t = false)]
     summary: bool,
 
-    #[arg(short, long, default_value_t = 1)]
+    #[clap(short, long, default_value_t = 1)]
     n_iter: usize,
 
-    #[arg(short, long, default_value_t = false)]
+    #[clap(short, long, default_value_t = 100000)]
+    moves: usize,
+
+    #[clap(short, long, default_value_t = false)]
     visualize: bool,
 
-    #[arg(short, long, default_value_t = false)]
+    #[clap(short, long, default_value_t = true)]
     bfm: bool,
 
-    #[arg(short, long, default_value_t = false)]
+    #[clap(short, long, default_value_t = false)]
     debug: bool,
+    #[clap(short, long, default_value = "config.toml")]
+    toml_file: String,
 }
 
 const BASE_VECTORS: [(isize, isize, isize); 6] = [
@@ -50,7 +60,7 @@ const BASE_VECTORS: [(isize, isize, isize); 6] = [
     (3, 1, 0), //4
     (3, 0, 0), //3
 ];
-const BASE_VECTORS_SIMPLE: [(isize, isize, isize); 3] = [(1, 0, 0), (0, 1, 0), (0, 0, 1)];
+//const BASE_VECTORS_SIMPLE: [(isize, isize, isize); 3] = [(1, 0, 0), (0, 1, 0), (0, 0, 1)];
 
 fn generate_bond_vectors(base_vectors: &[(isize, isize, isize)]) -> HashSet<(isize, isize, isize)> {
     let mut potential_neighbors: HashSet<(isize, isize, isize)> = HashSet::new();
@@ -90,6 +100,17 @@ lazy_static! {
         generate_bond_vectors(&BASE_VECTORS).into_iter().collect();
 }
 
+
+struct System {
+    la: usize,
+    max_neighbors: usize,
+    max_type: usize,
+    concs: [f64; 3], // You can adjust the size based on your actual needs
+    functional_groups: Vec<Rc<FunctionalGroup>>,
+    allowed_reactions: Vec<Reaction>,
+}
+
+
 pub struct Reaction {
     reactant1: Rc<FunctionalGroup>,
     reactant2: Rc<FunctionalGroup>,
@@ -109,6 +130,7 @@ pub struct Molecule {
     functional_group: Rc<FunctionalGroup>,
     position: (usize, usize, usize),
     neighbors: Vec<Rc<RefCell<Molecule>>>,
+    MW: f32,
     id: u32,
 }
 
@@ -119,11 +141,13 @@ impl Molecule {
         functional_group: Rc<FunctionalGroup>,
         max_neighbors: usize,
         position: (usize, usize, usize),
+        MW: f32
     ) -> Self {
         Molecule {
             functional_group,
             position,
             neighbors: Vec::with_capacity(max_neighbors),
+            MW,
             id: NEXT_ID.fetch_add(1, Ordering::SeqCst) as u32,
         }
     }
@@ -135,98 +159,50 @@ impl Clone for Molecule {
             functional_group: self.functional_group.clone(),
             position: self.position,
             neighbors: self.neighbors.clone(),
+            MW: self.MW,
             id: self.id,
         }
     }
 }
 
-const LA: usize = 100; // dimension of cube
-const MAX_NEIGHBORS: usize = 6; // maximum number of neighbors per molecule
-const MAX_TYPE: usize = 3; // Number of molecule types
+//const LA: usize = 100; // dimension of cube
+//const MAX_NEIGHBORS: usize = 6; // maximum number of neighbors per molecule
+//const MAX_TYPE: usize = 3; // Number of molecule types
                            //const CONCS: [f64; MAX_TYPE] = [0.05, 0.1, 0.2]; // starting conc of each molecule type
-const CONCS: [f64; 2] = [0.3, 0.2]; // starting conc of each molecule type
+//const CONCS: [f64; 3] = [0.05, 0.2,0.0]; // starting conc of each molecule type
 
 fn main() -> Result<(), std::io::Error> {
     let start_time = Instant::now();
     let args = Args::parse();
 
-    let functional_group1 = Rc::new(FunctionalGroup { id: 0, count: 2 });
-    let functional_group2 = Rc::new(FunctionalGroup { id: 1, count: 3 });
-    //let functional_group3 = Rc::new(FunctionalGroup { id: 2, count: 2 });
-
-    let mut functional_groups = Vec::new();
-    functional_groups.push(functional_group1.clone());
-    functional_groups.push(functional_group2.clone());
+    let system = setup_system(&args)?;
 
 
-  /*   //chain growth reaction
-    let allowed_reactions = vec![
-        Reaction {
-            // initiation
-            reactant1: functional_group1.clone(),
-            reactant2: functional_group2.clone(),
-            product1: functional_group1.clone(),
-            product2: functional_group3.clone(),
-            rate_constant: 0.1,
-            bond: true,
-        },
-        Reaction {
-            // propagation
-            reactant1: functional_group2.clone(),
-            reactant2: functional_group3.clone(),
-            product1: functional_group3.clone(),
-            product2: functional_group3.clone(),
-            rate_constant: 10.0,
-            bond: true,
-        },
-    ]; */
-
-    let allowed_reactions = vec![
-        Reaction {
-            reactant1: functional_group1.clone(),
-            reactant2: functional_group2.clone(),
-            product1: functional_group1.clone(),
-            product2: functional_group2.clone(),
-            rate_constant: 10.0,
-            bond: true,
-        },
-        // Reaction {
-        //     // propagation
-        //     reactant1: functional_group2.clone(),
-        //     reactant2: functional_group3.clone(),
-        //     product1: functional_group3.clone(),
-        //     product2: functional_group3.clone(),
-        //     rate_constant: 10.0,
-        //     bond: true,
-        // },
-    ];
-
-    let (mut grid, molecules) = create_random_grid(args.bfm, LA / 2, &functional_groups);
+    let (mut grid, molecules) = create_random_grid(args.bfm, &system.la / 2, &system.functional_groups, system.la, system.concs);
     //visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
     let n_iter = args.n_iter;
     for i in 0..n_iter {
         println!("\nITERATION {i}");
-        random_move_n_times(&mut grid, &molecules, 1000000, args.bfm);
-        react_neighbors(&mut grid, &molecules, &allowed_reactions);
+        random_move_n_times(&mut grid, &molecules, args.moves, args.bfm);
+        react_neighbors(&mut grid, &molecules, &system.allowed_reactions);
         let graph = utils::molecules_to_graph(&molecules);
         statistics::print_connected_molecules_statistics(&graph, false);
+        statistics::print_functional_groups(&molecules,system.max_type);
         if args.visualize {
             visualize::visualize_chains(&graph);
-            visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
+            visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false, system.max_type);
         }
     }
 
-    if args.layers {
-        statistics::print_layers(&grid, LA);
-    }
 
     if args.summary {
-        statistics::print_summary(&grid, MAX_TYPE, MAX_NEIGHBORS, LA);
-        statistics::print_occupied_grid_points_and_molecules(&grid, LA);
+        statistics::print_summary(&grid, system.max_type, system.max_neighbors, system.la);
+        statistics::print_functional_groups(&molecules,system.max_type);
+        statistics::print_occupied_grid_points_and_molecules(&grid, system.la);
         statistics::print_bond_statistics(&molecules, &UNIQUE_BOND_VECTORS);
         let graph = utils::molecules_to_graph(&molecules);
         statistics::print_connected_molecules_statistics(&graph, true);
-        statistics::print_reactions(&allowed_reactions);
+        statistics::print_reactions(&system.allowed_reactions);
     }
 
     if args.visualize {
@@ -238,10 +214,101 @@ fn main() -> Result<(), std::io::Error> {
     Ok(())
 }
 
+
+fn setup_system(args: &Args) ->  Result<System, std::io::Error> {
+    // Read the TOML configuration file
+  
+    let toml_file_path = Path::new(&args.toml_file);
+    let mut toml_content = String::new();
+    let mut toml_file = File::open(toml_file_path).expect("Could not find config toml file!");
+    toml_file.read_to_string(&mut toml_content).expect("Could not read reaction config toml!");
+
+
+    // Parse the TOML content into a Value
+    let toml_value: Value = toml::from_str(&toml_content).expect("Could not parse reaction config file!");
+
+
+    // Extract parameters from the TOML Value
+    let la = toml_value["LA"].as_integer().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: LA not found"))? as usize;
+    let max_neighbors = toml_value["MAX_NEIGHBORS"].as_integer().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: MAX_NEIGHBORS not found"))? as usize;
+    let max_type = toml_value["MAX_TYPE"].as_integer().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: MAX_TYPE not found"))? as usize;
+    let concs: Vec<f64> = toml_value["CONCS"].as_array()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: CONCS not found"))?
+        .iter()
+        .map(|v| v.as_float().unwrap())
+        .collect();
+
+    // Extract functional groups and reactions from the TOML Value
+    let functional_groups_toml = toml_value["functional_groups"]
+        .as_array()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: functional_groups not found"))?;
+
+    // Convert TOML functional groups into the desired type
+    let mut functional_groups: Vec<Rc<FunctionalGroup>> = Vec::new();
+
+    // Create a functional_group_map to associate IDs with functional groups
+    let mut functional_group_map: HashMap<u32, Rc<FunctionalGroup>> = HashMap::new();
+
+    for fg in functional_groups_toml {
+        let id = fg["id"].as_integer().unwrap() as u32;
+        let count = fg["count"].as_integer().unwrap() as usize;
+        let functional_group = Rc::new(FunctionalGroup { id, count });
+
+        functional_groups.push(functional_group.clone()); // Add the functional group to the list
+        functional_group_map.insert(id, functional_group);
+    }
+
+    let reactions = toml_value["reactions"]
+        .as_array()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: reactions not found"))?;
+
+    let mut allowed_reactions: Vec<Reaction> = Vec::new();
+
+    for reaction in reactions {
+        let reactant1_id = reaction["reactant1_id"].as_integer().unwrap() as u32;
+        let reactant2_id = reaction["reactant2_id"].as_integer().unwrap() as u32;
+        let product1_id = reaction["product1_id"].as_integer().unwrap() as u32;
+        let product2_id = reaction["product2_id"].as_integer().unwrap() as u32;
+        let rate_constant = reaction["rate_constant"].as_float().unwrap();
+        let bond = reaction["bond"].as_bool().unwrap();
+
+        let reactant1 = functional_group_map[&reactant1_id].clone();
+        let reactant2 = functional_group_map[&reactant2_id].clone();
+        let product1 = functional_group_map[&product1_id].clone();
+        let product2 = functional_group_map[&product2_id].clone();
+
+        let reaction = Reaction {
+            reactant1,
+            reactant2,
+            product1,
+            product2,
+            rate_constant,
+            bond,
+        };
+
+        allowed_reactions.push(reaction);
+    }
+
+    // Create an instance of the System struct and return it
+    let system = System {
+        la,
+        max_neighbors,
+        max_type,
+        concs: [concs[0], concs[1], concs[2]], // Assuming there are always three elements in concs
+        functional_groups,
+        allowed_reactions,
+    };
+
+    Ok(system)
+}
+
+
 fn create_random_grid(
     use_bfm: bool,
     z_max: usize,
     functional_groups: &Vec<Rc<FunctionalGroup>>,
+    LA: usize,
+    CONCS: [f64; 3],
 ) -> (
     Array3<Option<Rc<RefCell<Molecule>>>>,
     Vec<Rc<RefCell<Molecule>>>,
@@ -268,6 +335,7 @@ fn create_random_grid(
                         functional_groups[moltype].clone(),
                         functional_groups[moltype].count,
                         (i, j, k),
+                        100.0,
                     )));
 
                     if !use_bfm {
@@ -292,7 +360,6 @@ fn create_random_grid(
                             grid[[i + 1, j, k + 1]] = Some(molecule.clone());
                             grid[[i, j + 1, k + 1]] = Some(molecule.clone());
                             grid[[i + 1, j + 1, k + 1]] = Some(molecule.clone());
-
                             molecules.push(molecule);
                         }
                     }
@@ -313,6 +380,7 @@ fn are_reaction_participants(
         || (Rc::ptr_eq(&reaction.reactant1, mol2) && Rc::ptr_eq(&reaction.reactant2, mol1))
 }
 
+//can we invert this function in order to get the fast reactions first...
 fn react_neighbors(
     grid: &mut Array3<Option<Rc<RefCell<Molecule>>>>,
     molecules: &[Rc<RefCell<Molecule>>],
@@ -397,9 +465,9 @@ fn get_reactable_neighbors(
         if ni >= 0
             && nj >= 0
             && nk >= 0
-            && (ni as usize) < LA
-            && (nj as usize) < LA
-            && (nk as usize) < LA
+            && (ni as usize) < grid.dim().0
+            && (nj as usize) < grid.dim().1
+            && (nk as usize) < grid.dim().2
         {
             if let Some(neighbor) = &grid[[(ni as usize), (nj as usize), (nk as usize)]] {
                 if Rc::ptr_eq(molecule, neighbor) {
@@ -472,7 +540,7 @@ fn move_molecule_randomly(
     let new_k = k.wrapping_add(*dk as usize);
 
     // check if outside of cell
-    if new_i >= LA - 1 || new_j >= LA - 1 || new_k >= LA - 1 {
+    if new_i >= grid.dim().0 - 1 || new_j >= grid.dim().1 - 1 || new_k >= grid.dim().2 - 1 {
         // New position is out of bounds
         //println!("Rejected i:{i} {j} {k} ");
         //println!("Rejected d:{di} {dj} {dk} ");
