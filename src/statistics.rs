@@ -10,7 +10,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::{Molecule, Reaction, FunctionalGroup};
+use crate::{FunctionalGroup, Molecule, Reaction};
 
 pub fn print_summary(
     grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
@@ -56,8 +56,7 @@ pub fn print_summary(
     }
 }
 
-
-pub fn print_functional_groups(molecules: &[Rc<RefCell<Molecule>>], MAX_TYPE: usize)  {
+pub fn print_functional_groups(molecules: &[Rc<RefCell<Molecule>>], MAX_TYPE: usize) {
     // Initialize a vector to store the counts for each type
     let mut type_counts = vec![0; MAX_TYPE];
 
@@ -88,9 +87,7 @@ pub fn print_functional_groups(molecules: &[Rc<RefCell<Molecule>>], MAX_TYPE: us
     for (type_id, count) in type_counts.iter().enumerate() {
         println!("Functional Group Type {}: Count = {}", type_id, count);
     }
-    
 }
-
 
 pub fn print_occupied_grid_points_and_molecules(
     grid: &Array3<Option<Rc<RefCell<Molecule>>>>,
@@ -118,7 +115,6 @@ pub fn print_occupied_grid_points_and_molecules(
     println!("Unique molecules: {}", unique_molecules.len());
     (occupied_grid_points, unique_molecules.len())
 }
-
 
 pub fn print_bond_statistics(
     molecules: &Vec<Rc<RefCell<Molecule>>>,
@@ -280,25 +276,21 @@ pub fn print_reactions(allowed_reactions: &Vec<Reaction>) {
     }
 }
 
-
-use plotly::{common::{Title}, Layout, layout::Axis};
+use plotly::{common::Title, layout::Axis, Layout};
 use plotly::{Bar, Plot};
 
 pub fn plot_chain_length_distribution(chain_lengths: &BTreeMap<usize, usize>) {
-    
     let lengths: Vec<usize> = chain_lengths.keys().cloned().collect();
     let counts: Vec<usize> = chain_lengths.values().cloned().collect();
 
-    let trace = Bar::new(lengths.clone(), counts.clone())
-        .name("\nChain Length Distribution");
+    let trace = Bar::new(lengths.clone(), counts.clone()).name("\nChain Length Distribution");
 
-        let layout = Layout::new()
+    let layout = Layout::new()
         .title(Title::new("Chain Length Distribution"))
         .x_axis(Axis::new().title(Title::new("Chain Length")))
         //.x_axis(Axis::new().title(Title::new("Chain Length")).type_(plotly::layout::AxisType::Log))
         //.y_axis(Axis::new().title(Title::new("Count")).type_(plotly::layout::AxisType::Log));
         .y_axis(Axis::new().title(Title::new("Count")));
-
 
     let mut plot = Plot::new();
     plot.set_layout(layout);

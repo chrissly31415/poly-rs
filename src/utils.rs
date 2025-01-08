@@ -6,8 +6,9 @@ use petgraph::Undirected;
 
 use crate::Molecule;
 
-
-pub fn molecules_to_graph(molecules: &Vec<Rc<RefCell<Molecule>>>) -> Graph<Rc<RefCell<Molecule>>, (), Undirected> {
+pub fn molecules_to_graph(
+    molecules: &Vec<Rc<RefCell<Molecule>>>,
+) -> Graph<Rc<RefCell<Molecule>>, (), Undirected> {
     let mut graph = Graph::<Rc<RefCell<Molecule>>, (), Undirected>::new_undirected();
     let mut node_indices = std::collections::HashMap::new();
 
@@ -15,7 +16,7 @@ pub fn molecules_to_graph(molecules: &Vec<Rc<RefCell<Molecule>>>) -> Graph<Rc<Re
     for molecule in molecules {
         let id = molecule.borrow().id;
         let node_index = graph.add_node(Rc::clone(molecule)); // node id should be ~ molecule id
-        node_indices.insert(id, node_index);  
+        node_indices.insert(id, node_index);
     }
 
     // Add neighbors as edges in the graph, the edges contain the node index as id
@@ -33,5 +34,3 @@ pub fn molecules_to_graph(molecules: &Vec<Rc<RefCell<Molecule>>>) -> Graph<Rc<Re
     }
     graph
 }
-
-

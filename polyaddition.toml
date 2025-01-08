@@ -1,17 +1,17 @@
-LA = 200
+LA = 100
 MAX_NEIGHBORS = 6
 MAX_TYPE = 3
-CONCS = [0.2, 0.2, 0.0]
+CONCS = [0.3, 0.5, 0.0]
 
 #OH
 [[functional_groups]]
 id = 0
-count = 2
+count = 3
 
 #NCO
 [[functional_groups]]
 id = 1
-count = 2
+count = 3
 
 #NCO
 [[functional_groups]]

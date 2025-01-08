@@ -36,7 +36,6 @@ fn draw_axes_and_labels(window: &mut Window) {
         };
         axis.set_local_translation(Translation3::from(axes_shift[i].into_inner() * 0.5));
     }
-
 }
 
 pub fn visualize_chains(graph: &Graph<Rc<RefCell<Molecule>>, (), Undirected>) {

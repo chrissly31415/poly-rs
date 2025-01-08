@@ -9,7 +9,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -100,7 +100,6 @@ lazy_static! {
         generate_bond_vectors(&BASE_VECTORS).into_iter().collect();
 }
 
-
 struct System {
     la: usize,
     max_neighbors: usize,
@@ -109,7 +108,6 @@ struct System {
     functional_groups: Vec<Rc<FunctionalGroup>>,
     allowed_reactions: Vec<Reaction>,
 }
-
 
 pub struct Reaction {
     reactant1: Rc<FunctionalGroup>,
@@ -141,7 +139,7 @@ impl Molecule {
         functional_group: Rc<FunctionalGroup>,
         max_neighbors: usize,
         position: (usize, usize, usize),
-        MW: f32
+        MW: f32,
     ) -> Self {
         Molecule {
             functional_group,
@@ -168,7 +166,7 @@ impl Clone for Molecule {
 //const LA: usize = 100; // dimension of cube
 //const MAX_NEIGHBORS: usize = 6; // maximum number of neighbors per molecule
 //const MAX_TYPE: usize = 3; // Number of molecule types
-                           //const CONCS: [f64; MAX_TYPE] = [0.05, 0.1, 0.2]; // starting conc of each molecule type
+//const CONCS: [f64; MAX_TYPE] = [0.05, 0.1, 0.2]; // starting conc of each molecule type
 //const CONCS: [f64; 3] = [0.05, 0.2,0.0]; // starting conc of each molecule type
 
 fn main() -> Result<(), std::io::Error> {
@@ -177,8 +175,13 @@ fn main() -> Result<(), std::io::Error> {
 
     let system = setup_system(&args)?;
 
-
-    let (mut grid, molecules) = create_random_grid(args.bfm, &system.la / 2, &system.functional_groups, system.la, system.concs);
+    let (mut grid, molecules) = create_random_grid(
+        args.bfm,
+        &system.la / 2,
+        &system.functional_groups,
+        system.la,
+        system.concs,
+    );
     //visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false);
     let n_iter = args.n_iter;
     for i in 0..n_iter {
@@ -187,17 +190,24 @@ fn main() -> Result<(), std::io::Error> {
         react_neighbors(&mut grid, &molecules, &system.allowed_reactions);
         let graph = utils::molecules_to_graph(&molecules);
         statistics::print_connected_molecules_statistics(&graph, false);
-        statistics::print_functional_groups(&molecules,system.max_type);
+        statistics::print_functional_groups(&molecules, system.max_type);
         if args.visualize {
             visualize::visualize_chains(&graph);
-            visualize::visualize_layers(&grid, &molecules, 0.2, true, args.bfm, false, system.max_type);
+            visualize::visualize_layers(
+                &grid,
+                &molecules,
+                0.2,
+                true,
+                args.bfm,
+                false,
+                system.max_type,
+            );
         }
     }
 
-
     if args.summary {
         statistics::print_summary(&grid, system.max_type, system.max_neighbors, system.la);
-        statistics::print_functional_groups(&molecules,system.max_type);
+        statistics::print_functional_groups(&molecules, system.max_type);
         statistics::print_occupied_grid_points_and_molecules(&grid, system.la);
         statistics::print_bond_statistics(&molecules, &UNIQUE_BOND_VECTORS);
         let graph = utils::molecules_to_graph(&molecules);
@@ -214,34 +224,58 @@ fn main() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-
-fn setup_system(args: &Args) ->  Result<System, std::io::Error> {
+fn setup_system(args: &Args) -> Result<System, std::io::Error> {
     // Read the TOML configuration file
-  
+
     let toml_file_path = Path::new(&args.toml_file);
     let mut toml_content = String::new();
     let mut toml_file = File::open(toml_file_path).expect("Could not find config toml file!");
-    toml_file.read_to_string(&mut toml_content).expect("Could not read reaction config toml!");
-
+    toml_file
+        .read_to_string(&mut toml_content)
+        .expect("Could not read reaction config toml!");
 
     // Parse the TOML content into a Value
-    let toml_value: Value = toml::from_str(&toml_content).expect("Could not parse reaction config file!");
-
+    let toml_value: Value =
+        toml::from_str(&toml_content).expect("Could not parse reaction config file!");
 
     // Extract parameters from the TOML Value
-    let la = toml_value["LA"].as_integer().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: LA not found"))? as usize;
-    let max_neighbors = toml_value["MAX_NEIGHBORS"].as_integer().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: MAX_NEIGHBORS not found"))? as usize;
-    let max_type = toml_value["MAX_TYPE"].as_integer().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: MAX_TYPE not found"))? as usize;
-    let concs: Vec<f64> = toml_value["CONCS"].as_array()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: CONCS not found"))?
+    let la = toml_value["LA"].as_integer().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid TOML format: LA not found",
+        )
+    })? as usize;
+    let max_neighbors = toml_value["MAX_NEIGHBORS"].as_integer().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid TOML format: MAX_NEIGHBORS not found",
+        )
+    })? as usize;
+    let max_type = toml_value["MAX_TYPE"].as_integer().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid TOML format: MAX_TYPE not found",
+        )
+    })? as usize;
+    let concs: Vec<f64> = toml_value["CONCS"]
+        .as_array()
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Invalid TOML format: CONCS not found",
+            )
+        })?
         .iter()
         .map(|v| v.as_float().unwrap())
         .collect();
 
     // Extract functional groups and reactions from the TOML Value
-    let functional_groups_toml = toml_value["functional_groups"]
-        .as_array()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: functional_groups not found"))?;
+    let functional_groups_toml = toml_value["functional_groups"].as_array().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid TOML format: functional_groups not found",
+        )
+    })?;
 
     // Convert TOML functional groups into the desired type
     let mut functional_groups: Vec<Rc<FunctionalGroup>> = Vec::new();
@@ -258,9 +292,12 @@ fn setup_system(args: &Args) ->  Result<System, std::io::Error> {
         functional_group_map.insert(id, functional_group);
     }
 
-    let reactions = toml_value["reactions"]
-        .as_array()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid TOML format: reactions not found"))?;
+    let reactions = toml_value["reactions"].as_array().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Invalid TOML format: reactions not found",
+        )
+    })?;
 
     let mut allowed_reactions: Vec<Reaction> = Vec::new();
 
@@ -301,7 +338,6 @@ fn setup_system(args: &Args) ->  Result<System, std::io::Error> {
 
     Ok(system)
 }
-
 
 fn create_random_grid(
     use_bfm: bool,
